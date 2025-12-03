@@ -1,0 +1,42 @@
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Player de Vídeo Centralizado</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="player-wrap" role="region" aria-label="Player de vídeo">
+        <div class="video-area">
+            <video id="video" preload="metadata" tabindex="0">
+                <source src="sample.mp4" type="video/mp4">
+                Seu navegador não suporta o elemento de vídeo.
+            </video>
+        </div>
+
+
+        <div class="controls" aria-hidden="false">
+            <button id="playPause" class="btn" aria-label="play/pause">▶️</button>
+
+
+            <div class="progress-wrap">
+                <input id="progress" class="progress" type="range" min="0" max="100" value="0" step="0.1"
+                    aria-label="barra de progresso">
+            </div>
+
+
+            <div class="right-controls">
+                <div class="time" id="time">00:00 / 00:00</div>
+                <button id="mute" class="btn" aria-label="mudo">🔊</button>
+                <button id="fs" class="btn" aria-label="tela cheia">⤢</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="player.js"></script>
+</body>
+
+</html>
