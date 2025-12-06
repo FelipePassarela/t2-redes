@@ -1,0 +1,85 @@
+body {
+    font-family: Inter, Roboto, Arial;
+    margin: 16px;
+    background: #0f1720;
+    color: #e6eef8;
+}
+
+.container {
+    max-width: 980px;
+    margin: auto;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+video {
+    width: 100%;
+    background: #000;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.controls {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+button,
+select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #1f2937;
+    background: #111827;
+    color: #e6eef8;
+}
+
+.stats {
+    margin-top: 12px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.card {
+    background: #071025;
+    padding: 10px 12px;
+    border-radius: 8px;
+    min-width: 160px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.label {
+    font-size: 12px;
+    color: #9fb0c8;
+}
+
+.value {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 6px;
+}
+
+.log {
+    margin-top: 12px;
+    background: #061219;
+    padding: 8px;
+    border-radius: 8px;
+    height: 160px;
+    overflow: auto;
+    font-family: monospace;
+    font-size: 12px;
+    color: #bcd7f5;
+}
+
+.small {
+    font-size: 13px;
+    color: #90aecc;
+}

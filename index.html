@@ -1,42 +1,65 @@
+<!doctype html>
 <html lang="pt-BR">
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Player de Vídeo Centralizado</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mini DASH Player</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <div class="player-wrap" role="region" aria-label="Player de vídeo">
-        <div class="video-area">
-            <video id="video" preload="metadata" tabindex="0">
-                <source src="sample.mp4" type="video/mp4">
-                Seu navegador não suporta o elemento de vídeo.
-            </video>
+    <div class="container">
+        <header>
+            <h1 style="margin:0; font-size:20px">Mini DASH Player</h1>
+            <div class="small">Conecta em <code>http://localhost:8080</code></div>
+        </header>
+
+        <video id="video" controls></video>
+
+        <div class="controls">
+            <button id="btnStart">Iniciar</button>
+            <button id="btnPause">Pausar</button>
+
+            <label class="small" for="qualitySelect">Qualidade:</label>
+            <select id="qualitySelect"></select>
+
+            <label class="small">Buffer alvo (s):</label>
+            <input id="targetBuffer" type="number" min="4" max="60" value="12"
+                style="width:72px; padding:8px; border-radius:8px; background:#0b1220; color:#e6eef8; border:1px solid #1f2937;">
         </div>
 
-
-        <div class="controls" aria-hidden="false">
-            <button id="playPause" class="btn" aria-label="play/pause">▶️</button>
-
-
-            <div class="progress-wrap">
-                <input id="progress" class="progress" type="range" min="0" max="100" value="0" step="0.1"
-                    aria-label="barra de progresso">
+        <div class="stats">
+            <div class="card">
+                <div class="label">Qualidade atual</div>
+                <div id="curQuality" class="value">—</div>
             </div>
 
+            <div class="card">
+                <div class="label">Buffer estimado (s)</div>
+                <div id="bufferSeconds" class="value">0</div>
+            </div>
 
-            <div class="right-controls">
-                <div class="time" id="time">00:00 / 00:00</div>
-                <button id="mute" class="btn" aria-label="mudo">🔊</button>
-                <button id="fs" class="btn" aria-label="tela cheia">⤢</button>
+            <div class="card">
+                <div class="label">Download speed (Mbps)</div>
+                <div id="downloadSpeed" class="value">0</div>
+            </div>
+
+            <div class="card">
+                <div class="label">Fila de segmentos</div>
+                <div id="queueLen" class="value">0</div>
+            </div>
+
+            <div class="card">
+                <div class="label">Segmentos baixados</div>
+                <div id="segmentsDownloaded" class="value">0</div>
             </div>
         </div>
+
+        <div class="log" id="log"></div>
     </div>
 
-
-    <script type="module" src="js/player.js"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 
 </html>
