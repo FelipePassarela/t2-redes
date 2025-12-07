@@ -20,22 +20,20 @@ export class PlayerUI {
 
     initEvents() {
         this.btnStart.addEventListener('click', async () => {
-            try {
-                await this.player.start();
-            } catch (e) {
-                this.log('Erro ao iniciar player: ' + e.message);
-            }
+            if (!this.player) return;
+            await this.player.start();
         });
 
         this.btnPause.addEventListener('click', () => {
+            if (!this.player) return;
             this.player.pause();
+            this.log('Pausado.');
         });
 
         this.targetBufferInput.addEventListener('change', () => {
-            const val = parseFloat(this.targetBufferInput.value);
-            if (!isNaN(val)) {
-                this.player.setTargetBuffer(val);
-            }
+            if (!this.player) return;
+            const v = parseFloat(this.targetBufferInput.value);
+            if (!isNaN(v)) this.player.setTargetBuffer(v);
         });
     }
 
