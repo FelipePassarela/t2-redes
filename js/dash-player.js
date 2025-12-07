@@ -40,12 +40,21 @@ export class DashPlayer {
             throw new Error('Erro ao buscar manifest: ' + r.status);
         }
         const txt = await r.text();
-        const re = /dash\/video\/([^"'<>\s\/]+)\//g;
+
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(txt, "application/xml");
+        const reps = xml.getElementsByTagName('Representation');
+
         const set = new Set();
-        let m;
-        while ((m = re.exec(txt)) !== null) {
-            set.add(m[1]);
+        for (let i = 0; i < reps.length; i++) {
+            const rep = reps[i];
+            const mime = rep.getAttribute('mimeType');
+            // Filtra apenas representações de vídeo
+            if (mime && mime.startsWith('video/')) {
+                set.add(rep.getAttribute('id'));
+            }
         }
+
         this.qualities = Array.from(set);
         this.qualities.sort((a, b) => {
             const na = parseInt(a) || 0;
