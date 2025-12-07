@@ -17,7 +17,6 @@ const player = new DashPlayer(
     (stats) => ui.updateStats(stats)
 );
 
-// Conecta UI ao Player
 ui.player = player;
 
 // Inicializa lista de qualidades assim que possível
@@ -26,7 +25,7 @@ ui.player = player;
         const qualities = await player.fetchManifest();
         ui.populateQualitySelect(qualities, player.currentQualityIndex);
     } catch (e) {
-        ui.log('Aviso: não foi possível buscar manifest no início. Inicie o servidor e clique em Iniciar. ' + e.message);
+        ui.log('Erro ao buscar qualidades: ' + e.message);
     }
 })();
 
