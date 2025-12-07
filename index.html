@@ -1,65 +1,39 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mini DASH Player</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom DASH Player (No Libs)</title>
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
-    <div class="container">
-        <header>
-            <h1 style="margin:0; font-size:20px">Mini DASH Player</h1>
-            <div class="small">Conecta em <code>http://localhost:8080</code></div>
-        </header>
 
-        <video id="video" controls></video>
+    <div class="container">
+        <h1>📺 VoD Streaming - Custom DASH Client</h1>
+
+        <div class="video-container">
+            <video id="videoPlayer" controls></video>
+
+            <div class="overlay-info" id="debugInfo">
+                Status: Aguardando...
+            </div>
+        </div>
 
         <div class="controls">
-            <button id="btnStart">Iniciar</button>
-            <button id="btnPause">Pausar</button>
-
-            <label class="small" for="qualitySelect">Qualidade:</label>
-            <select id="qualitySelect"></select>
-
-            <label class="small">Buffer alvo (s):</label>
-            <input id="targetBuffer" type="number" min="4" max="60" value="12"
-                style="width:72px; padding:8px; border-radius:8px; background:#0b1220; color:#e6eef8; border:1px solid #1f2937;">
-        </div>
-
-        <div class="stats">
-            <div class="card">
-                <div class="label">Qualidade atual</div>
-                <div id="curQuality" class="value">—</div>
-            </div>
-
-            <div class="card">
-                <div class="label">Buffer estimado (s)</div>
-                <div id="bufferSeconds" class="value">0</div>
-            </div>
-
-            <div class="card">
-                <div class="label">Download speed (Mbps)</div>
-                <div id="downloadSpeed" class="value">0</div>
-            </div>
-
-            <div class="card">
-                <div class="label">Fila de segmentos</div>
-                <div id="queueLen" class="value">0</div>
-            </div>
-
-            <div class="card">
-                <div class="label">Segmentos baixados</div>
-                <div id="segmentsDownloaded" class="value">0</div>
+            <button id="btnLoad">Carregar Manifesto</button>
+            <div class="qos-status">
+                <span id="currentQuality">Qualidade: -</span>
+                <span id="bufferLevel">Buffer: 0s</span>
+                <span id="bandwidth">Largura de Banda: 0 Mbps</span>
             </div>
         </div>
 
-        <div class="log" id="log"></div>
+        <div class="logs">
+            <h3>Logs do Sistema</h3>
+            <div id="logConsole"></div>
+        </div>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <script src="app.js"></script>
 </body>
-
 </html>
