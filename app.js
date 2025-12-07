@@ -80,11 +80,12 @@ class DashPlayer {
     // --- NOVO: Lógica Core do Seek ---
     getSegmentForTime(time) {
         // Procura no array um segmento onde: start <= time < end
-        const seg = this.videoSegments.find(s => time >= s.start && time < s.end);
-
-        // Se passar do final, retorna o último
-        if (!seg && this.videoSegments.length > 0) {
-            return this.videoSegments[this.videoSegments.length - 1];
+        let seg = null;
+        for (const s of this.videoSegments) {
+            if (time >= s.start && time < s.end) {
+                seg = s;
+                break;
+            }
         }
         return seg;
     }
@@ -205,8 +206,6 @@ class DashPlayer {
                     segmentIndex++;
                 }
             });
-
-            this.log(`Mapa de segmentos criado: ${this.videoSegments.length} pedaços.`);
         }
 
         // 4. Parse das Qualidades (Mantém lógica anterior)
