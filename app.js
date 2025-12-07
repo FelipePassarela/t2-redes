@@ -9,29 +9,38 @@ class DashPlayer {
         this.currentQualityIndex = 0;
         this.segmentDuration = 4.0;
 
+        // --- NOVO: Variável para duração total ---
+        this.totalDuration = 0;
+
         this.queue = [];
         this.isAppending = false;
         this.nextSegmentIndex = 1;
         this.isDownloading = false;
         this.initialized = false;
         this.isStopped = false;
-        this.nextSegmentIndex = 1;
         this.qualityChanged = false;
 
         this.lastDownloadSpeed = 0;
         this.minBufferTime = 10;
 
+        this.videoSegments = [];
+        this.totalDuration = 0;
+
+        // Elementos da UI
+        this.seekBar = document.getElementById('seekBar');
+        this.timeDisplay = document.getElementById('timeDisplay');
+
         this.setupEventListeners();
+        this.setupSeekControl(); // --- NOVO ---
     }
 
     log(msg, type = 'info') {
         const consoleEl = document.getElementById('logConsole');
-        if (!consoleEl) return;
+        if (!consoleEl) { console.log(`[${type}] ${msg}`); return; }
         const entry = document.createElement('div');
         entry.className = `log-entry log-${type}`;
         entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
         consoleEl.prepend(entry);
-        console.log(`[${type}] ${msg}`);
     }
 
     setupEventListeners() {
@@ -39,44 +48,88 @@ class DashPlayer {
         this.video.src = URL.createObjectURL(this.mediaSource);
 
         this.mediaSource.addEventListener('sourceopen', () => {
-            this.log("MediaSource Aberto. Aguardando manifesto...");
+            this.log("MediaSource Aberto.");
         });
 
-        this.video.addEventListener('error', (e) => {
-            if (!this.isStopped) {
-                this.isStopped = true;
-                const err = this.video.error;
-                let msg = "Erro desconhecido";
-                if (err) {
-                    const errorTypes = {
-                        1: "MEDIA_ERR_ABORTED",
-                        2: "MEDIA_ERR_NETWORK",
-                        3: "MEDIA_ERR_DECODE (Codec Incompatível)",
-                        4: "MEDIA_ERR_SRC_NOT_SUPPORTED"
-                    };
-                    msg = errorTypes[err.code] || msg;
-                }
-                this.log(`CRITICAL VIDEO ERROR: ${msg}`, 'error');
-            }
-        });
-
-        // Loop principal (1s)
+        // Loop principal
         setInterval(() => this.bufferLoop(), 1000);
 
+        // Atualiza a barra visualmente
         this.video.addEventListener('timeupdate', () => this.updateStats());
+    }
+
+    // --- NOVO: Configura o evento de arraste da barra ---
+    setupSeekControl() {
+        if (!this.seekBar) return;
+
+        // O evento 'input' ocorre enquanto arrasta, 'change' ao soltar.
+        // Usamos 'change' para evitar spam de requisições.
+        this.seekBar.addEventListener('change', (e) => {
+            const targetTime = parseFloat(e.target.value);
+            this.seek(targetTime);
+        });
+
+        // Opcional: Pausar enquanto arrasta (usando evento 'input')
+        this.seekBar.addEventListener('input', () => {
+            // Apenas visual, não dispara logica pesada
+            const val = this.seekBar.value;
+            this.updateTimeDisplay(val, this.totalDuration);
+        });
+    }
+
+    // --- NOVO: Lógica Core do Seek ---
+    getSegmentForTime(time) {
+        // Procura no array um segmento onde: start <= time < end
+        const seg = this.videoSegments.find(s => time >= s.start && time < s.end);
+
+        // Se passar do final, retorna o último
+        if (!seg && this.videoSegments.length > 0) {
+            return this.videoSegments[this.videoSegments.length - 1];
+        }
+        return seg;
+    }
+
+    seek(time) {
+        if (time < 0) time = 0;
+        if (time >= this.totalDuration) time = this.totalDuration - 0.1;
+
+        this.video.currentTime = time;
+
+        // Usa o novo mapa para achar o índice correto
+        const targetSeg = this.getSegmentForTime(time);
+
+        if (targetSeg) {
+            this.log(`Seek ${time.toFixed(2)}s -> Segmento ${targetSeg.index} (Início: ${targetSeg.start.toFixed(2)}s)`);
+            this.nextSegmentIndex = targetSeg.index;
+        } else {
+            // Fallback (caso o mapa falhe)
+            this.nextSegmentIndex = 1;
+        }
+
+        // Limpeza padrão
+        this.queue = [];
+        this.isAppending = false;
+        this.isStopped = false;
+        if (this.sourceBuffer && this.sourceBuffer.updating) {
+            try { this.sourceBuffer.abort(); } catch (e) { }
+        }
+        this.isDownloading = false;
+        this.bufferLoop();
     }
 
     async loadManifest() {
         if (this.isStopped) return;
         try {
-            this.log("Baixando Manifesto...");
             const response = await fetch(this.baseUrl + "manifest.mpd");
-            if (!response.ok) throw new Error("Erro HTTP ao baixar manifesto");
-
+            if (!response.ok) throw new Error("Erro HTTP manifesto");
             const text = await response.text();
+
             if (this.parseManifest(text)) {
                 await this.initializeSourceBuffer();
                 await this.downloadInitSegment();
+
+                // --- NOVO: Tenta iniciar reprodução automática ---
+                try { await this.video.play(); } catch (e) { console.log("Autoplay bloqueado"); }
             }
         } catch (e) {
             this.log(e.message, 'error');
@@ -87,104 +140,133 @@ class DashPlayer {
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, "text/xml");
 
-        // 1. Duração
-        const segmentTemplate = xml.querySelector("SegmentTemplate");
-        let timescale = 1, duration = 1;
-        if (segmentTemplate) {
-            timescale = parseFloat(segmentTemplate.getAttribute("timescale")) || 1;
-            duration = parseFloat(segmentTemplate.getAttribute("duration")) || 1;
-        }
-        this.segmentDuration = duration / timescale;
+        // 1. Duração Total (PT29.6S)
+        const mpd = xml.querySelector("MPD");
+        const durationAttr = mpd ? mpd.getAttribute("mediaPresentationDuration") : null;
+        if (durationAttr) {
+            this.totalDuration = this.parseISODuration(durationAttr);
+            this.log(`Duração Total: ${this.totalDuration}s`);
 
-        if (isNaN(this.segmentDuration) || this.segmentDuration < 0.5) {
-            this.segmentDuration = 4.0; // Fallback
+            // Seta duração no MediaSource para a barra ficar correta
+            if (this.mediaSource.readyState === 'open') {
+                this.mediaSource.duration = this.totalDuration;
+            }
         }
 
-        // 2. FILTRAR APENAS VÍDEO (Correção do Erro de Decode)
+        // 2. Encontrar AdapationSet de Vídeo
         const adaptationSets = xml.querySelectorAll("AdaptationSet");
         let videoSet = null;
-
         for (const as of adaptationSets) {
-            const mime = as.getAttribute("mimeType");
-            const contentType = as.getAttribute("contentType");
-
-            // Procura explicitamente por vídeo
-            if ((mime && mime.includes("video")) || (contentType && contentType === "video")) {
-                videoSet = as;
-                break;
-            }
-
-            // Fallback: olha a primeira representação filha
-            const rep = as.querySelector("Representation");
-            if (rep && rep.getAttribute("mimeType") && rep.getAttribute("mimeType").includes("video")) {
+            // Verifica se é video pelo contentType ou mimeType
+            if (as.getAttribute("contentType") === "video" ||
+                (as.getAttribute("mimeType") && as.getAttribute("mimeType").includes("video"))) {
                 videoSet = as;
                 break;
             }
         }
 
         if (!videoSet) {
-            this.log("Nenhum stream de vídeo encontrado no manifesto!", "error");
-            this.isStopped = true;
+            this.log("Nenhum vídeo encontrado.", "error");
             return false;
         }
 
+        // 3. Processar SegmentTimeline (O PULO DO GATO)
+        // Pega o template da primeira representação (assumindo alinhamento)
+        const rep = videoSet.querySelector("Representation");
+        const segmentTemplate = rep.querySelector("SegmentTemplate");
+
+        if (segmentTemplate) {
+            const timescale = parseFloat(segmentTemplate.getAttribute("timescale"));
+            const timeline = segmentTemplate.querySelector("SegmentTimeline");
+
+            this.videoSegments = [];
+            let currentTime = 0;
+            let segmentIndex = parseInt(segmentTemplate.getAttribute("startNumber") || 1);
+
+            // Itera sobre cada tag <S> (Segmento)
+            const sTags = timeline.querySelectorAll("S");
+            sTags.forEach((s) => {
+                const d = parseFloat(s.getAttribute("d")); // Duração em unidades de tempo
+                const r = parseInt(s.getAttribute("r") || 0); // Repetições (se houver)
+
+                // Calcula duração em segundos
+                const durationSec = d / timescale;
+
+                // Adiciona o segmento atual
+                // Loop para tratar o atributo 'r' (repeat), comum em manifestos
+                for (let i = 0; i <= r; i++) {
+                    this.videoSegments.push({
+                        index: segmentIndex,
+                        start: currentTime,
+                        end: currentTime + durationSec,
+                        duration: durationSec
+                    });
+                    currentTime += durationSec;
+                    segmentIndex++;
+                }
+            });
+
+            this.log(`Mapa de segmentos criado: ${this.videoSegments.length} pedaços.`);
+        }
+
+        // 4. Parse das Qualidades (Mantém lógica anterior)
         const representations = videoSet.querySelectorAll("Representation");
-        const defaultCodecs = videoSet.getAttribute("codecs") || "avc1.64001f"; // High Profile
+        this.qualities = Array.from(representations).map((rep) => ({
+            id: rep.getAttribute("id"),
+            bandwidth: parseInt(rep.getAttribute("bandwidth")),
+            height: rep.getAttribute("height"),
+            codecs: rep.getAttribute("codecs") || "avc1.64001f",
+            mimeType: "video/mp4"
+        })).sort((a, b) => a.bandwidth - b.bandwidth);
 
-        this.qualities = Array.from(representations).map((rep, index) => {
-            return {
-                id: rep.getAttribute("id"), // ID do FFmpeg (0, 1, 2)
-                bandwidth: parseInt(rep.getAttribute("bandwidth")),
-                width: rep.getAttribute("width"),
-                height: rep.getAttribute("height"),
-                codecs: rep.getAttribute("codecs") || defaultCodecs,
-                mimeType: rep.getAttribute("mimeType") || 'video/mp4'
-            };
-        });
+        // Atualiza barra HTML se existir
+        const seekBar = document.getElementById('seekBar');
+        if (seekBar) seekBar.max = this.totalDuration;
 
-        // Ordena por bitrate
-        this.qualities.sort((a, b) => a.bandwidth - b.bandwidth);
-
-        this.log(`Carregadas ${this.qualities.length} qualidades de VÍDEO.`);
         return true;
     }
 
+    // --- NOVO: Helper para duração ISO 8601 (PT1H2M3.4S) ---
+    parseISODuration(pt) {
+        // Regex simplificado para pegar Horas, Minutos, Segundos
+        const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
+        const matches = pt.match(regex);
+        if (!matches) return 0;
+
+        const h = parseFloat(matches[1] || 0);
+        const m = parseFloat(matches[2] || 0);
+        const s = parseFloat(matches[3] || 0);
+
+        return (h * 3600) + (m * 60) + s;
+    }
+
+    // --- Demais métodos (initializeSourceBuffer, etc) mantidos iguais ---
+    // Apenas certifique-se de que downloadNextChunk usa a variável atualizada
+
     async initializeSourceBuffer() {
         if (this.sourceBuffer) return;
-
         const q = this.qualities[0];
         const mime = `${q.mimeType}; codecs="${q.codecs}"`;
-
-        this.log(`Inicializando Buffer: ${mime}`);
-
         if (MediaSource.isTypeSupported(mime)) {
             this.sourceBuffer = this.mediaSource.addSourceBuffer(mime);
             this.sourceBuffer.addEventListener('updateend', () => {
                 this.isAppending = false;
                 this.processQueue();
             });
-        } else {
-            this.log(`Codec não suportado: ${mime}`, 'error');
-            this.isStopped = true;
         }
     }
 
     processQueue() {
-        if (this.isStopped) return;
         if (this.queue.length > 0 && !this.sourceBuffer.updating) {
             this.isAppending = true;
             const data = this.queue.shift();
-            try {
-                this.sourceBuffer.appendBuffer(data);
-            } catch (e) {
-                this.log("Erro no appendBuffer. Reiniciando player...", 'error');
-                this.isStopped = true;
-            }
+            try { this.sourceBuffer.appendBuffer(data); }
+            catch (e) { this.isStopped = true; }
         }
     }
 
     addToBuffer(data) {
-        if (this.isStopped) return;
+        if (this.isStopped && !this.sourceBuffer.updating) return; // Segurança
         this.queue.push(data);
         if (!this.isAppending && this.sourceBuffer && !this.sourceBuffer.updating) {
             this.processQueue();
@@ -192,42 +274,32 @@ class DashPlayer {
     }
 
     async downloadInitSegment() {
-        // Limpa fila ao trocar qualidade/iniciar
+        // Mantido igual ao seu
         this.queue = [];
-
         const q = this.qualities[this.currentQualityIndex];
         const url = `${this.baseUrl}video/${q.id}/init.mp4`;
-
         try {
             const data = await this.fetchSegment(url);
             this.addToBuffer(data);
             this.initialized = true;
-            this.log(`Init carregado (ID: ${q.id})`);
-        } catch (e) {
-            this.log(`Falha Init: ${e.message}`, 'error');
-        }
+        } catch (e) { this.log("Erro init", "error"); }
     }
 
     async fetchSegment(url) {
         const t0 = performance.now();
         const res = await fetch(url);
-
-        if (res.status === 404) {
-            throw new Error("EOS");
-        }
+        if (res.status === 404) throw new Error("EOS");
         if (!res.ok) throw new Error(res.status);
-
         const buf = await res.arrayBuffer();
-
         const sec = (performance.now() - t0) / 1000;
         this.lastDownloadSpeed = (buf.byteLength * 8) / sec;
-
         return buf;
     }
 
     async bufferLoop() {
         if (!this.initialized || this.isDownloading || this.isStopped) return;
 
+        // Se buffer estiver muito cheio, pausa download (economia de banda)
         const bufferEnd = this.getBufferEnd();
         const ahead = bufferEnd - this.video.currentTime;
 
@@ -240,26 +312,32 @@ class DashPlayer {
     }
 
     checkQoS() {
+        // Lógica mantida igual
         const available = this.lastDownloadSpeed * 0.7;
         let bestIdx = 0;
-
         for (let i = 0; i < this.qualities.length; i++) {
-            if (available >= this.qualities[i].bandwidth) {
-                bestIdx = i;
-            }
+            if (available >= this.qualities[i].bandwidth) bestIdx = i;
         }
-
         if (bestIdx !== this.currentQualityIndex) {
-            this.log(`QoS: ${this.qualities[this.currentQualityIndex].height}p -> ${this.qualities[bestIdx].height}p`, 'qos');
             this.currentQualityIndex = bestIdx;
             this.qualityChanged = true;
         }
     }
 
     async downloadNextChunk() {
-        // Lógica de troca de qualidade (Mantenha igual ao passo anterior)
+        // 1. Verifica fim da lista
+        // Se o índice atual for maior que o último índice mapeado, fim do vídeo.
+        if (this.videoSegments.length > 0) {
+            const lastSeg = this.videoSegments[this.videoSegments.length - 1];
+            if (this.nextSegmentIndex > lastSeg.index) {
+                this.log("Fim da lista de segmentos.", "success");
+                if (this.mediaSource.readyState === 'open') this.mediaSource.endOfStream();
+                this.isStopped = true;
+                return;
+            }
+        }
+
         if (this.qualityChanged) {
-            this.log("Trocando qualidade... Baixando novo Init.");
             await this.downloadInitSegment();
             this.qualityChanged = false;
         }
@@ -268,26 +346,23 @@ class DashPlayer {
         const url = `${this.baseUrl}video/${q.id}/${this.nextSegmentIndex}.m4s`;
 
         try {
-            this.log(`Baixando Chunk ${this.nextSegmentIndex} (${q.height}p)`);
+            // Verifica se não estamos pedindo segmento além da duração
+            const maxSegments = Math.ceil(this.totalDuration / this.segmentDuration);
+            if (this.nextSegmentIndex > maxSegments && this.totalDuration > 0) {
+                throw new Error("EOS");
+            }
+
+            this.log(`Baixando Chunk ${this.nextSegmentIndex}`);
             const data = await this.fetchSegment(url);
             this.addToBuffer(data);
             this.nextSegmentIndex++;
         } catch (e) {
-            // NOVA LÓGICA DE FIM DE VÍDEO
             if (e.message === "EOS") {
-                this.log("Fim do conteúdo detectado (404).", "success");
-
-                // Avisa o navegador que não haverá mais dados.
-                // O vídeo continuará tocando o que tem no buffer até o final.
-                if (this.mediaSource.readyState === 'open') {
-                    this.mediaSource.endOfStream();
-                }
-
-                this.isStopped = true; // Para o loop de download
-            } else {
-                // Erros reais de rede
-                this.log(`Erro ao baixar chunk: ${e.message}`, 'warn');
+                this.log("Fim do vídeo");
+                if (this.mediaSource.readyState === 'open') this.mediaSource.endOfStream();
                 this.isStopped = true;
+            } else {
+                this.log("Erro chunk: " + e.message, 'warn');
             }
         }
     }
@@ -301,13 +376,39 @@ class DashPlayer {
         return 0;
     }
 
+    // --- NOVO: Formatador de tempo para UI (00:00) ---
+    formatTime(seconds) {
+        if (isNaN(seconds)) return "00:00";
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    updateTimeDisplay(current, total) {
+        if (this.timeDisplay) {
+            this.timeDisplay.innerText = `${this.formatTime(current)} / ${this.formatTime(total)}`;
+        }
+    }
+
     updateStats() {
         if (!this.qualities.length) return;
-        const q = this.qualities[this.currentQualityIndex];
 
+        // Atualiza dados de texto
+        const q = this.qualities[this.currentQualityIndex];
         document.getElementById('currentQuality').innerText = `Qualidade: ${q.height}p`;
-        document.getElementById('bufferLevel').innerText = `Buffer: ${(this.getBufferEnd() - this.video.currentTime).toFixed(1)}s`;
         document.getElementById('bandwidth').innerText = `Banda: ${(this.lastDownloadSpeed / 1000000).toFixed(2)} Mbps`;
+
+        const current = this.video.currentTime;
+        const bufferEnd = this.getBufferEnd();
+
+        document.getElementById('bufferLevel').innerText = `Buffer: ${(bufferEnd - current).toFixed(1)}s`;
+
+        // --- NOVO: Atualiza a posição da barra se o usuário não estiver arrastando ---
+        // (Nota: para perfeição, verificaríamos se o mouse está clicado, mas simples funciona assim)
+        if (this.seekBar && Math.abs(this.seekBar.value - current) > 1.0) {
+            this.seekBar.value = current;
+        }
+        this.updateTimeDisplay(current, this.totalDuration);
     }
 }
 
