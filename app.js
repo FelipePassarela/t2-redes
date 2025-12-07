@@ -342,7 +342,7 @@ class DashPlayer {
         }
 
         const q = this.qualities[this.currentQualityIndex];
-        const url = `${this.baseUrl}video/${q.id}/${this.nextSegmentIndex}.m4s`;
+        const url = `${this.baseUrl}video/${q.id}/${this.nextSegmentIndex}`;
 
         try {
             // Verifica se não estamos pedindo segmento além da duração
