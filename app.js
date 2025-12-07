@@ -14,7 +14,7 @@ class DashPlayer {
         this.nextSegmentIndex = 1;
         this.isDownloading = false;
         this.initialized = false;
-        this.isStopped = false; // Trava de segurança
+        this.isStopped = false;
         this.nextSegmentIndex = 1;
         this.qualityChanged = false;
 
@@ -211,7 +211,12 @@ class DashPlayer {
     async fetchSegment(url) {
         const t0 = performance.now();
         const res = await fetch(url);
+
+        if (res.status === 404) {
+            throw new Error("EOS");
+        }
         if (!res.ok) throw new Error(res.status);
+
         const buf = await res.arrayBuffer();
 
         const sec = (performance.now() - t0) / 1000;
@@ -252,7 +257,7 @@ class DashPlayer {
     }
 
     async downloadNextChunk() {
-        // Se a qualidade mudou, baixa o Init da nova qualidade PRIMEIRO
+        // Lógica de troca de qualidade (Mantenha igual ao passo anterior)
         if (this.qualityChanged) {
             this.log("Trocando qualidade... Baixando novo Init.");
             await this.downloadInitSegment();
@@ -268,8 +273,22 @@ class DashPlayer {
             this.addToBuffer(data);
             this.nextSegmentIndex++;
         } catch (e) {
-            this.log("Fim do vídeo ou erro de rede.", 'warn');
-            this.isStopped = true;
+            // NOVA LÓGICA DE FIM DE VÍDEO
+            if (e.message === "EOS") {
+                this.log("Fim do conteúdo detectado (404).", "success");
+
+                // Avisa o navegador que não haverá mais dados.
+                // O vídeo continuará tocando o que tem no buffer até o final.
+                if (this.mediaSource.readyState === 'open') {
+                    this.mediaSource.endOfStream();
+                }
+
+                this.isStopped = true; // Para o loop de download
+            } else {
+                // Erros reais de rede
+                this.log(`Erro ao baixar chunk: ${e.message}`, 'warn');
+                this.isStopped = true;
+            }
         }
     }
 
