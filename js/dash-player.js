@@ -258,7 +258,7 @@ export class DashPlayer {
         this.segmentsDownloaded += 1;
         this.recordDownload(arr.byteLength, msTime);
         this.segmentQueue.push(arr);
-        this.log(`Segmento ${segIndex} [${quality}] baixado: ${arr.byteLength} bytes em ${msTime.toFixed(1)} ms`);
+        this.log(`Segmento ${segIndex} [quality: ${quality}] baixado: ${arr.byteLength} bytes em ${msTime.toFixed(1)} ms`);
         this.onStatsUpdate(this.getStats());
     }
 
