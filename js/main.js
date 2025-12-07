@@ -12,6 +12,7 @@ const player = new DashPlayer(
     SERVER,
     (msg, ...args) => {
         const text = [msg, ...args].map(a => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' ');
+        console.log(text);
         ui.log(text);
     },
     (stats) => ui.updateStats(stats)

@@ -5,6 +5,7 @@ export class DashPlayer {
         this.MANIFEST_URL = this.SERVER + '/dash/manifest.mpd';
         this.onLog = onLog || console.log;
         this.onStatsUpdate = onStatsUpdate || (() => { });
+        this.handleSourceOpen = this.handleSourceOpen.bind(this);
 
         // Config
         this.SEGMENT_DURATION_S = 2.0;
@@ -69,6 +70,12 @@ export class DashPlayer {
     }
 
     async start() {
+        // Evita recriar MediaSource se já existir e estiver aberto/aberto
+        if (this.mediaSource && this.mediaSource.readyState !== 'closed') {
+            this.log('MediaSource já inicializado; retomando reprodução.');
+            this.video.play();
+            return;
+        }
         if (this.isRunning) {
             this.video.play();
             return;
@@ -83,27 +90,51 @@ export class DashPlayer {
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
 
-        this.mediaSource.addEventListener('sourceopen', async () => {
-            this.log('MediaSource aberto');
-            const mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-            try {
-                this.sourceBuffer = this.mediaSource.addSourceBuffer(mime);
-                this.sourceBuffer.mode = 'segments';
-            } catch (e) {
-                this.log('Erro ao criar SourceBuffer.', e.message);
-                return;
-            }
+        // Usa handler vinculado e dispara apenas uma vez
+        this.mediaSource.addEventListener('sourceopen', this.handleSourceOpen, { once: true });
+    }
 
-            this.sourceBuffer.addEventListener('updateend', () => this.onUpdateEnd());
+    handleSourceOpen(ev) {
+        // Garante que tratamos apenas o MediaSource atual
+        if (ev.target !== this.mediaSource) return;
+        this.log('MediaSource aberto');
+        const mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+        try {
+            if (this.sourceBuffer) return; // já existe
+            this.sourceBuffer = this.mediaSource.addSourceBuffer(mime);
+            this.sourceBuffer.mode = 'segments';
+        } catch (e) {
+            this.log('Erro ao criar SourceBuffer.', e.message);
+            return;
+        }
 
-            this.nextSegmentIndex = 1;
-            this.segmentQueue = [];
-            this.segmentsDownloaded = 0;
-            this.recentSpeeds = [];
-            this.seenInitForQuality = {};
+        this.sourceBuffer.addEventListener('updateend', () => this.onUpdateEnd());
 
-            this.scheduleLoop();
-        });
+        this.nextSegmentIndex = 1;
+        this.segmentQueue = [];
+        this.segmentsDownloaded = 0;
+        this.recentSpeeds = [];
+        this.seenInitForQuality = {};
+
+        this.scheduleLoop();
+    }
+
+    appendFromQueue() {
+        // Não tente anexar se o MediaSource não estiver aberto
+        if (!this.mediaSource || this.mediaSource.readyState !== 'open') return;
+        if (!this.sourceBuffer || this.isAppending || this.sourceBuffer.updating) return;
+        if (this.segmentQueue.length === 0) return;
+        const chunk = this.segmentQueue.shift();
+        try {
+            this.isAppending = true;
+            this.sourceBuffer.appendBuffer(chunk);
+        } catch (e) {
+            this.segmentQueue.unshift(chunk);
+            this.isAppending = false;
+            this.log('Falha ao adicionar ao SourceBuffer, tentando novamente em',
+                this.APPEND_RETRY_MS, 'ms:', e.message);
+            setTimeout(() => this.appendFromQueue(), this.APPEND_RETRY_MS);
+        }
     }
 
     pause() {
@@ -127,7 +158,10 @@ export class DashPlayer {
         this.appendFromQueue();
     }
 
+    // ÚNICA versão de appendFromQueue (a duplicada foi removida)
     appendFromQueue() {
+        // Verificações de segurança
+        if (!this.mediaSource || this.mediaSource.readyState !== 'open') return;
         if (!this.sourceBuffer || this.isAppending || this.sourceBuffer.updating) return;
         if (this.segmentQueue.length === 0) return;
 
@@ -136,9 +170,16 @@ export class DashPlayer {
             this.isAppending = true;
             this.sourceBuffer.appendBuffer(chunk);
         } catch (e) {
+            // Se o SourceBuffer foi removido ou o MediaSource fechou, pare o loop
+            if (e && typeof e.message === 'string' && e.message.includes('removed')) {
+                this.log('SourceBuffer removido; parando o player.');
+                this.isRunning = false;
+                return;
+            }
             this.segmentQueue.unshift(chunk);
             this.isAppending = false;
-            this.log('Falha ao appendBuffer; retry em', this.APPEND_RETRY_MS, 'ms', e.message);
+            this.log('Falha ao adicionar ao SourceBuffer, tentando novamente em',
+                this.APPEND_RETRY_MS, 'ms:', e.message);
             setTimeout(() => this.appendFromQueue(), this.APPEND_RETRY_MS);
         }
     }
