@@ -141,10 +141,17 @@ export class DashPlayer {
 
     setQuality(index) {
         if (index >= 0 && index < this.qualities.length) {
+            this.autoAbr = false;               // fixa qualidade
             this.manualQuality = index;
             this.currentQualityIndex = index;
             this.log('Qualidade manual selecionada:', this.qualities[index]);
         }
+    }
+
+    enableAutoAbr() {
+        this.manualQuality = null;              // libera ABR
+        this.autoAbr = true;
+        this.log('ABR automático ativado.');
     }
 
     setTargetBuffer(seconds) {

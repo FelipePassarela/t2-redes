@@ -19,6 +19,9 @@ export class PlayerUI {
     }
 
     initEvents() {
+        video.addEventListener('play', () => player.start());
+        video.addEventListener('pause', () => player.pause());
+
         this.btnStart.addEventListener('click', async () => {
             if (!this.player) return;
             await this.player.start();
@@ -30,6 +33,22 @@ export class PlayerUI {
             this.log('Pausado.');
         });
 
+        this.qualitySelect.addEventListener('change', () => {
+            if (!this.player) return;
+            const val = this.qualitySelect.value;
+            if (val === 'auto') {
+                this.player.enableAutoAbr();
+                this.log('Qualidade: Auto (ABR)');
+            } else {
+                const idx = parseInt(val, 10);
+                if (!Number.isNaN(idx)) {
+                    this.player.setQuality(idx);
+                    const label = this.player.qualities[idx] ?? idx;
+                    this.log(`Qualidade fixa: ${label}`);
+                }
+            }
+        });
+
         this.targetBufferInput.addEventListener('change', () => {
             if (!this.player) return;
             const v = parseFloat(this.targetBufferInput.value);
@@ -39,18 +58,21 @@ export class PlayerUI {
 
     populateQualitySelect(qualities, currentIndex) {
         this.qualitySelect.innerHTML = '';
-        qualities.forEach((q, idx) => {
+
+        const optAuto = document.createElement('option');
+        optAuto.value = 'auto';
+        optAuto.textContent = 'Auto (ABR)';
+        this.qualitySelect.appendChild(optAuto);
+
+        qualities.forEach((q, i) => {
             const opt = document.createElement('option');
-            opt.value = idx;
+            opt.value = String(i);
             opt.textContent = q;
             this.qualitySelect.appendChild(opt);
         });
-        this.qualitySelect.value = currentIndex;
 
-        this.qualitySelect.addEventListener('change', () => {
-            const idx = parseInt(this.qualitySelect.value);
-            this.player.setQuality(idx);
-        });
+        this.qualitySelect.value = 'auto';
+        this.curQualityEl.textContent = 'auto';
     }
 
     updateStats(stats) {
