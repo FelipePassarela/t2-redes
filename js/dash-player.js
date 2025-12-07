@@ -28,6 +28,8 @@ export class DashPlayer {
         this.manualQuality = null;
         this.seenInitForQuality = {};
         this.loopActive = false;
+        this.mimeCodec = null;
+        this.firstAppendDone = false;
     }
 
     log(...args) {
@@ -47,12 +49,19 @@ export class DashPlayer {
         const reps = xml.getElementsByTagName('Representation');
 
         const set = new Set();
+        let firstVideoCodec = null;
+        let firstVideoMime = null;
+
         for (let i = 0; i < reps.length; i++) {
             const rep = reps[i];
             const mime = rep.getAttribute('mimeType');
-            // Filtra apenas representações de vídeo
+            const codec = rep.getAttribute('codecs');
             if (mime && mime.startsWith('video/')) {
                 set.add(rep.getAttribute('id'));
+                if (!firstVideoCodec) {
+                    firstVideoCodec = codec;
+                    firstVideoMime = mime;
+                }
             }
         }
 
@@ -66,6 +75,14 @@ export class DashPlayer {
             throw new Error('Nenhuma qualidade encontrada no manifest.');
         }
         this.log('Qualidades detectadas:', this.qualities);
+
+        if (firstVideoMime && firstVideoCodec) {
+            this.mimeCodec = `${firstVideoMime}; codecs="${firstVideoCodec}"`;
+        } else {
+            this.mimeCodec = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+        }
+        this.log('Codec selecionado:', this.mimeCodec);
+
         return this.qualities;
     }
 
@@ -95,16 +112,15 @@ export class DashPlayer {
     }
 
     handleSourceOpen(ev) {
-        // Garante que tratamos apenas o MediaSource atual
         if (ev.target !== this.mediaSource) return;
         this.log('MediaSource aberto');
-        const mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+        const mime = this.mimeCodec || 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
         try {
-            if (this.sourceBuffer) return; // já existe
+            if (this.sourceBuffer) return;
             this.sourceBuffer = this.mediaSource.addSourceBuffer(mime);
             this.sourceBuffer.mode = 'segments';
         } catch (e) {
-            this.log('Erro ao criar SourceBuffer.', e.message);
+            this.log('Erro ao criar SourceBuffer.', e.message, 'mime=', mime);
             return;
         }
 
@@ -115,26 +131,8 @@ export class DashPlayer {
         this.segmentsDownloaded = 0;
         this.recentSpeeds = [];
         this.seenInitForQuality = {};
-
+        this.firstAppendDone = false;
         this.scheduleLoop();
-    }
-
-    appendFromQueue() {
-        // Não tente anexar se o MediaSource não estiver aberto
-        if (!this.mediaSource || this.mediaSource.readyState !== 'open') return;
-        if (!this.sourceBuffer || this.isAppending || this.sourceBuffer.updating) return;
-        if (this.segmentQueue.length === 0) return;
-        const chunk = this.segmentQueue.shift();
-        try {
-            this.isAppending = true;
-            this.sourceBuffer.appendBuffer(chunk);
-        } catch (e) {
-            this.segmentQueue.unshift(chunk);
-            this.isAppending = false;
-            this.log('Falha ao adicionar ao SourceBuffer, tentando novamente em',
-                this.APPEND_RETRY_MS, 'ms:', e.message);
-            setTimeout(() => this.appendFromQueue(), this.APPEND_RETRY_MS);
-        }
     }
 
     pause() {
@@ -158,7 +156,6 @@ export class DashPlayer {
         this.appendFromQueue();
     }
 
-    // ÚNICA versão de appendFromQueue (a duplicada foi removida)
     appendFromQueue() {
         // Verificações de segurança
         if (!this.mediaSource || this.mediaSource.readyState !== 'open') return;
@@ -170,7 +167,6 @@ export class DashPlayer {
             this.isAppending = true;
             this.sourceBuffer.appendBuffer(chunk);
         } catch (e) {
-            // Se o SourceBuffer foi removido ou o MediaSource fechou, pare o loop
             if (e && typeof e.message === 'string' && e.message.includes('removed')) {
                 this.log('SourceBuffer removido; parando o player.');
                 this.isRunning = false;
