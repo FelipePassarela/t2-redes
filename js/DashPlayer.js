@@ -74,7 +74,10 @@ export class DashPlayer {
 
         const rep = this.representation;
 
-        if (this.currentSegment > rep.nSegments) {
+        // Trick to capture currentSegment in async context
+        const currentSegment = this.currentSegment;
+
+        if (currentSegment > rep.nSegments) {
             if (this.mediaSource.readyState === "open") {
                 this.mediaSource.endOfStream();
                 console.log("End of stream reached.");
@@ -83,12 +86,12 @@ export class DashPlayer {
         }
 
         try {
-            console.log(`Fetching segment ${this.currentSegment} of ${rep.nSegments}`);
-            await this.delay(2000); // Simulate network delay
+            console.log(`Fetching segment ${currentSegment} of ${rep.nSegments}`);
+            await this.delay(500); // Simulate network delay
 
             const mediaURL = rep.mediaTemplate
                 .replace("$RepresentationID$", rep.id)
-                .replace("$Number$", this.currentSegment)
+                .replace("$Number$", currentSegment)
                 .replace(".m4s", ""); // Server API doesn't expect file extension
 
             const resp = await fetch(mediaURL);
@@ -97,7 +100,9 @@ export class DashPlayer {
             }
             const buffer = await resp.arrayBuffer();
             await this.appendBufferSafe(buffer);
-            this.currentSegment += this.isSeeking ? 0 : 1;
+
+            if (this.isSeeking) return;
+            this.currentSegment++;
             this.feedNextSegment();
 
         } catch (error) {
