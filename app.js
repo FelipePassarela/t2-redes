@@ -9,7 +9,6 @@ class DashPlayer {
         this.currentQualityIndex = 0;
         this.segmentDuration = 4.0;
 
-        // --- NOVO: Variável para duração total ---
         this.totalDuration = 0;
 
         this.queue = [];
@@ -26,12 +25,11 @@ class DashPlayer {
         this.videoSegments = [];
         this.totalDuration = 0;
 
-        // Elementos da UI
         this.seekBar = document.getElementById('seekBar');
         this.timeDisplay = document.getElementById('timeDisplay');
 
         this.setupEventListeners();
-        this.setupSeekControl(); // --- NOVO ---
+        this.setupSeekControl();
     }
 
     log(msg, type = 'info') {
@@ -51,14 +49,10 @@ class DashPlayer {
             this.log("MediaSource Aberto.");
         });
 
-        // Loop principal
         setInterval(() => this.bufferLoop(), 1000);
-
-        // Atualiza a barra visualmente
         this.video.addEventListener('timeupdate', () => this.updateStats());
     }
 
-    // --- NOVO: Configura o evento de arraste da barra ---
     setupSeekControl() {
         if (!this.seekBar) return;
 
@@ -69,17 +63,13 @@ class DashPlayer {
             this.seek(targetTime);
         });
 
-        // Opcional: Pausar enquanto arrasta (usando evento 'input')
         this.seekBar.addEventListener('input', () => {
-            // Apenas visual, não dispara logica pesada
             const val = this.seekBar.value;
             this.updateTimeDisplay(val, this.totalDuration);
         });
     }
 
-    // --- NOVO: Lógica Core do Seek ---
     getSegmentForTime(time) {
-        // Procura no array um segmento onde: start <= time < end
         let seg = null;
         for (const s of this.videoSegments) {
             if (time >= s.start && time < s.end) {
@@ -129,7 +119,6 @@ class DashPlayer {
                 await this.initializeSourceBuffer();
                 await this.downloadInitSegment();
 
-                // --- NOVO: Tenta iniciar reprodução automática ---
                 try { await this.video.play(); } catch (e) { console.log("Autoplay bloqueado"); }
             }
         } catch (e) {
@@ -141,24 +130,20 @@ class DashPlayer {
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, "text/xml");
 
-        // 1. Duração Total (PT29.6S)
         const mpd = xml.querySelector("MPD");
         const durationAttr = mpd ? mpd.getAttribute("mediaPresentationDuration") : null;
         if (durationAttr) {
             this.totalDuration = this.parseISODuration(durationAttr);
             this.log(`Duração Total: ${this.totalDuration}s`);
 
-            // Seta duração no MediaSource para a barra ficar correta
             if (this.mediaSource.readyState === 'open') {
                 this.mediaSource.duration = this.totalDuration;
             }
         }
 
-        // 2. Encontrar AdapationSet de Vídeo
         const adaptationSets = xml.querySelectorAll("AdaptationSet");
         let videoSet = null;
         for (const as of adaptationSets) {
-            // Verifica se é video pelo contentType ou mimeType
             if (as.getAttribute("contentType") === "video" ||
                 (as.getAttribute("mimeType") && as.getAttribute("mimeType").includes("video"))) {
                 videoSet = as;
@@ -171,8 +156,6 @@ class DashPlayer {
             return false;
         }
 
-        // 3. Processar SegmentTimeline (O PULO DO GATO)
-        // Pega o template da primeira representação (assumindo alinhamento)
         const rep = videoSet.querySelector("Representation");
         const segmentTemplate = rep.querySelector("SegmentTemplate");
 
@@ -184,11 +167,10 @@ class DashPlayer {
             let currentTime = 0;
             let segmentIndex = parseInt(segmentTemplate.getAttribute("startNumber") || 1);
 
-            // Itera sobre cada tag <S> (Segmento)
             const sTags = timeline.querySelectorAll("S");
             sTags.forEach((s) => {
                 const d = parseFloat(s.getAttribute("d")); // Duração em unidades de tempo
-                const r = parseInt(s.getAttribute("r") || 0); // Repetições (se houver)
+                const r = parseInt(s.getAttribute("r") || 0);
 
                 // Calcula duração em segundos
                 const durationSec = d / timescale;
@@ -208,7 +190,6 @@ class DashPlayer {
             });
         }
 
-        // 4. Parse das Qualidades (Mantém lógica anterior)
         const representations = videoSet.querySelectorAll("Representation");
         this.qualities = Array.from(representations).map((rep) => ({
             id: rep.getAttribute("id"),
@@ -218,14 +199,12 @@ class DashPlayer {
             mimeType: "video/mp4"
         })).sort((a, b) => a.bandwidth - b.bandwidth);
 
-        // Atualiza barra HTML se existir
         const seekBar = document.getElementById('seekBar');
         if (seekBar) seekBar.max = this.totalDuration;
 
         return true;
     }
 
-    // --- NOVO: Helper para duração ISO 8601 (PT1H2M3.4S) ---
     parseISODuration(pt) {
         // Regex simplificado para pegar Horas, Minutos, Segundos
         const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
@@ -238,9 +217,6 @@ class DashPlayer {
 
         return (h * 3600) + (m * 60) + s;
     }
-
-    // --- Demais métodos (initializeSourceBuffer, etc) mantidos iguais ---
-    // Apenas certifique-se de que downloadNextChunk usa a variável atualizada
 
     async initializeSourceBuffer() {
         if (this.sourceBuffer) return;
@@ -273,7 +249,6 @@ class DashPlayer {
     }
 
     async downloadInitSegment() {
-        // Mantido igual ao seu
         this.queue = [];
         const q = this.qualities[this.currentQualityIndex];
         const url = `${this.baseUrl}video/${q.id}/init.mp4`;
@@ -311,7 +286,6 @@ class DashPlayer {
     }
 
     checkQoS() {
-        // Lógica mantida igual
         const available = this.lastDownloadSpeed * 0.7;
         let bestIdx = 0;
         for (let i = 0; i < this.qualities.length; i++) {
@@ -324,7 +298,6 @@ class DashPlayer {
     }
 
     async downloadNextChunk() {
-        // 1. Verifica fim da lista
         // Se o índice atual for maior que o último índice mapeado, fim do vídeo.
         if (this.videoSegments.length > 0) {
             const lastSeg = this.videoSegments[this.videoSegments.length - 1];
@@ -345,7 +318,6 @@ class DashPlayer {
         const url = `${this.baseUrl}video/${q.id}/${this.nextSegmentIndex}`;
 
         try {
-            // Verifica se não estamos pedindo segmento além da duração
             const maxSegments = Math.ceil(this.totalDuration / this.segmentDuration);
             if (this.nextSegmentIndex > maxSegments && this.totalDuration > 0) {
                 throw new Error("EOS");
@@ -375,7 +347,6 @@ class DashPlayer {
         return 0;
     }
 
-    // --- NOVO: Formatador de tempo para UI (00:00) ---
     formatTime(seconds) {
         if (isNaN(seconds)) return "00:00";
         const m = Math.floor(seconds / 60);
@@ -392,7 +363,6 @@ class DashPlayer {
     updateStats() {
         if (!this.qualities.length) return;
 
-        // Atualiza dados de texto
         const q = this.qualities[this.currentQualityIndex];
         document.getElementById('currentQuality').innerText = `Qualidade: ${q.height}p`;
         document.getElementById('bandwidth').innerText = `Banda: ${(this.lastDownloadSpeed / 1000000).toFixed(2)} Mbps`;
@@ -402,8 +372,6 @@ class DashPlayer {
 
         document.getElementById('bufferLevel').innerText = `Buffer: ${(bufferEnd - current).toFixed(1)}s`;
 
-        // --- NOVO: Atualiza a posição da barra se o usuário não estiver arrastando ---
-        // (Nota: para perfeição, verificaríamos se o mouse está clicado, mas simples funciona assim)
         if (this.seekBar && Math.abs(this.seekBar.value - current) > 1.0) {
             this.seekBar.value = current;
         }
