@@ -11,6 +11,8 @@ export class DashPlayer {
         this.abr = new ABRController();
         this.adaptations = null
 
+        const minimalInBuffer = 10; // seconds
+
         // State variables
         this.representation = null;
         this.currentSegment = 1;
@@ -29,20 +31,26 @@ export class DashPlayer {
         setInterval(() => this.updateBufferStatus(), 500);
     }
 
+    getBufferAhead() {
+        if (!this.videoElement) return 0;
+        const buffered = this.videoElement.buffered;
+        const currentTime = this.videoElement.currentTime;
+        let bufferAhead = 0;
+
+        for (let i = 0; i < buffered.length; i++) {
+            const start = buffered.start(i);
+            const end = buffered.end(i);
+            if (currentTime >= start && currentTime <= end) {
+                bufferAhead = end - currentTime;
+                break;
+            }
+        }
+        return bufferAhead;
+    }
+
     updateBufferStatus() {
         if (this.videoElement && this.ui) {
-            const buffered = this.videoElement.buffered;
-            const currentTime = this.videoElement.currentTime;
-            let bufferAhead = 0;
-
-            for (let i = 0; i < buffered.length; i++) {
-                const start = buffered.start(i);
-                const end = buffered.end(i);
-                if (currentTime >= start && currentTime <= end) {
-                    bufferAhead = end - currentTime;
-                    break;
-                }
-            }
+            const bufferAhead = this.getBufferAhead();
             this.ui.updateBuffer(bufferAhead);
         }
     }
@@ -98,6 +106,18 @@ export class DashPlayer {
         const mySessionId = this.seekSessionId;
 
         if (this.mediaSource.readyState !== "open") return;
+
+        // Check buffer level
+        const bufferAhead = this.getBufferAhead();
+        if (bufferAhead >= this.minimalInBuffer) {
+            ui.log("Buffer full, waiting...");
+            setTimeout(() => {
+                if (this.seekSessionId === mySessionId) {
+                    this.feedNextSegment();
+                }
+            }, 1000);
+            return;
+        }
 
         const rep = this.representation;
         const currentSeg = this.currentSegment; // Local var to avoid race conditions
