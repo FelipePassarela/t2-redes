@@ -1,4 +1,5 @@
 import { parseManifest } from "./parseManifest.js";
+import { ABRController } from "./ABRController.js";
 
 export class DashPlayer {
     constructor(videoElement, baseURL) {
@@ -6,6 +7,8 @@ export class DashPlayer {
         this.baseURL = baseURL;
         this.mediaSource = new MediaSource();
         this.sourceBuffer = null;
+        this.abr = new ABRController();
+        this.adaptations = null
 
         // State variables
         this.representation = null;
@@ -31,6 +34,7 @@ export class DashPlayer {
             const response = await fetch(this.baseURL + "manifest.mpd");
             const manifestText = await response.text();
             const [totalDuration, adaptations] = parseManifest(manifestText, this.baseURL);
+            this.adaptations = adaptations;
             console.log("Manifest loaded.");
             console.log("Adaptations:", adaptations);
 
@@ -100,12 +104,21 @@ export class DashPlayer {
                 .replace("$Number$", this.currentSegment)
                 .replace(".m4s", ""); // Server API doesn't expect file extension
 
+            const startDownloadTime = performance.now();
             const resp = await fetch(mediaURL);
-            if (mySessionId !== this.seekSessionId) return;
-            if (!resp.ok) { throw new Error(`Failed to fetch segment: ${mediaURL}`); }
-
             const buffer = await resp.arrayBuffer();
+            const endDownloadTime = performance.now();
             if (mySessionId !== this.seekSessionId) return;
+
+            // eval ABR
+            const timeToDownload = (endDownloadTime - startDownloadTime) / 1000;
+            this.abr.addSample(buffer.byteLength, timeToDownload);
+            const bestRepr = this.abr.selectRepresentation(this.adaptations);
+            if (bestRepr && bestRepr.id !== this.representation.id) {
+                await this.switchRepresentation(bestRepr);
+                return;
+            }
+
             await this.appendBufferSafe(buffer);
             if (mySessionId !== this.seekSessionId) return;
 
@@ -185,5 +198,37 @@ export class DashPlayer {
         }
 
         return false;
+    }
+
+    async switchRepresentation(newRepresentation) {
+        const mySessionId = this.seekSessionId;
+
+        this.sourceBuffer.remove(0, Infinity);
+        await new Promise(resolve => this.sourceBuffer
+            .addEventListener("updateend", resolve, { once: true })
+        );
+        if (mySessionId !== this.seekSessionId) return;
+
+        const initResp = await fetch(newRepresentation.init)
+        const initBuffer = await initResp.arrayBuffer();
+        if (mySessionId !== this.seekSessionId) return;
+        await this.appendBufferSafe(initBuffer);
+        if (mySessionId !== this.seekSessionId) return;
+
+        const segToFetch = newRepresentation.segments.findIndex(seg => {
+            const endTime = seg.start + seg.duration;
+            return this.videoElement.currentTime >= seg.start &&
+                this.videoElement.currentTime < endTime;
+        });
+
+        if (segToFetch === -1) {
+            console.warn("Seek time out of range of available segments.");
+            return;
+        }
+
+        this.representation = newRepresentation
+        this.currentSegment = segToFetch + 1;
+        console.log(`Switched to ${newRepresentation.id}`)
+        this.feedNextSegment();
     }
 }
