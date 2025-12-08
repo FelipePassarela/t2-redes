@@ -179,7 +179,6 @@ export class DashPlayer {
             const buffStart = buffered.start(i);
             const buffEnd = buffered.end(i);
 
-            console.log(`Buffered range: ${buffStart.toFixed(2)}s - ${buffEnd.toFixed(2)}s`);
             if ((segStart + tolerance) >= buffStart && (segEnd - tolerance) <= buffEnd) {
                 return true;
             }
