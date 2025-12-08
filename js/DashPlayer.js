@@ -85,9 +85,15 @@ export class DashPlayer {
             return;
         }
 
+        if (this.isSegmentBuffered(currentSegment)) {
+            this.currentSegment++;
+            this.feedNextSegment();
+            return;
+        }
+
         try {
             console.log(`Fetching segment ${currentSegment} of ${rep.nSegments}`);
-            await this.delay(500); // Simulate network delay
+            await this.delay(2500); // Simulate network delay
 
             const mediaURL = rep.mediaTemplate
                 .replace("$RepresentationID$", rep.id)
@@ -139,6 +145,13 @@ export class DashPlayer {
             return;
         }
 
+        if (this.isSegmentBuffered(segIndex + 1)) {
+            this.currentSegment = segIndex + 1;
+            this.isSeeking = false;
+            this.feedNextSegment();
+            return;
+        }
+
         this.sourceBuffer.remove(0, Infinity);
         await new Promise(resolve => {
             this.sourceBuffer.addEventListener("updateend", resolve, { once: true });
@@ -146,5 +159,28 @@ export class DashPlayer {
         this.currentSegment = segIndex + 1; // Segments are 1-indexed
         this.isSeeking = false;
         this.feedNextSegment();
+    }
+
+    isSegmentBuffered(segmentNumber) {
+        if (!this.sourceBuffer || !this.representation) return false;
+
+        const segmentInfo = this.representation.segments[segmentNumber - 1];
+
+        if (!segmentInfo) return false;
+
+        const segStart = segmentInfo.start;
+        const segEnd = segmentInfo.start + segmentInfo.duration;
+        const buffered = this.sourceBuffer.buffered;
+        const tolerance = 0.1; // 100ms tolerance
+
+        for (let i = 0; i < buffered.length; i++) {
+            const rangeStart = buffered.start(i);
+            const rangeEnd = buffered.end(i);
+
+            if ((segStart + tolerance) >= rangeStart && (segEnd - tolerance) <= rangeEnd) {
+                return true;
+            }
+        }
+        return false;
     }
 }
