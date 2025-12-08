@@ -28,7 +28,7 @@ export function parseManifest(manifest, baseURL) {
                 const timeScale = parseInt(segmentTemplate.getAttribute("timescale"));
                 let accumulatedTime = 0;
                 const segments = [];
-                
+
                 for (let segment of segmentTimeline.getElementsByTagName("S")) {
                     let duration = parseInt(segment.getAttribute("d"));
                     let durationSec = duration / timeScale;
@@ -42,6 +42,7 @@ export function parseManifest(manifest, baseURL) {
                 adaptations.push({
                     id: id,
                     bandwidth: representation.getAttribute("bandwidth"),
+                    height: representation.getAttribute("height"),
                     mimeType: representation.getAttribute("mimeType"),
                     codecs: representation.getAttribute("codecs"),
                     init: baseURL + init,

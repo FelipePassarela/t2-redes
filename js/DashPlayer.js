@@ -71,7 +71,7 @@ export class DashPlayer {
 
             this.mediaSource.duration = totalDuration;
             this.representation = adaptations[0];
-            this.ui.updateQuality(this.representation.id);
+            this.ui.updateQuality(this.representation.height + "p");
 
             const mimeType = `${this.representation.mimeType}; codecs="${this.representation.codecs}"`;
             this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeType);
@@ -275,7 +275,7 @@ export class DashPlayer {
         this.representation = newRepresentation
         this.currentSegment = segToFetch + 1;
         this.ui.log(`Switched to ${newRepresentation.id}`);
-        this.ui.updateQuality(newRepresentation.id);
+        this.ui.updateQuality(newRepresentation.height + "p");
         this.feedNextSegment();
     }
 }
