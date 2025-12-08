@@ -1,5 +1,5 @@
-import { DashPlayer } from './dash-player.js';
+import { DashPlayer } from "./DashPlayer.js";
 
-// Init
-const player = new DashPlayer(document.getElementById('videoPlayer'));
-document.getElementById('btnLoad').addEventListener('click', () => player.loadManifest());
+const videoElement = document.getElementById("videoPlayer");
+const baseURL = "http://localhost:8080/dash/";
+const player = new DashPlayer(videoElement, baseURL);
