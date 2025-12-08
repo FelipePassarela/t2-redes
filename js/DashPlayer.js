@@ -2,9 +2,10 @@ import { parseManifest } from "./parseManifest.js";
 import { ABRController } from "./ABRController.js";
 
 export class DashPlayer {
-    constructor(videoElement, baseURL) {
+    constructor(videoElement, baseURL, ui) {
         this.videoElement = videoElement;
         this.baseURL = baseURL;
+        this.ui = ui;
         this.mediaSource = new MediaSource();
         this.sourceBuffer = null;
         this.abr = new ABRController();
@@ -23,6 +24,27 @@ export class DashPlayer {
         this.videoElement.src = URL.createObjectURL(this.mediaSource);
         this.mediaSource.addEventListener("sourceopen", this.onSourceOpen);
         this.videoElement.addEventListener("seeking", () => this.onSeeking());
+
+        // Monitor buffer status
+        setInterval(() => this.updateBufferStatus(), 500);
+    }
+
+    updateBufferStatus() {
+        if (this.videoElement && this.ui) {
+            const buffered = this.videoElement.buffered;
+            const currentTime = this.videoElement.currentTime;
+            let bufferAhead = 0;
+
+            for (let i = 0; i < buffered.length; i++) {
+                const start = buffered.start(i);
+                const end = buffered.end(i);
+                if (currentTime >= start && currentTime <= end) {
+                    bufferAhead = end - currentTime;
+                    break;
+                }
+            }
+            this.ui.updateBuffer(bufferAhead);
+        }
     }
 
     async onSourceOpen() {
@@ -35,11 +57,13 @@ export class DashPlayer {
             const manifestText = await response.text();
             const [totalDuration, adaptations] = parseManifest(manifestText, this.baseURL);
             this.adaptations = adaptations;
-            console.log("Manifest loaded.");
+
+            this.ui.log("Manifest loaded.");
             console.log("Adaptations:", adaptations);
 
             this.mediaSource.duration = totalDuration;
             this.representation = adaptations[0];
+            this.ui.updateQuality(this.representation.id);
 
             const mimeType = `${this.representation.mimeType}; codecs="${this.representation.codecs}"`;
             this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeType);
@@ -49,7 +73,7 @@ export class DashPlayer {
 
             this.feedNextSegment();
         } catch (error) {
-            console.error("Error during source open:", error);
+            this.ui.log(`Error during source open: ${error.message}`);
         }
     }
 
@@ -81,7 +105,7 @@ export class DashPlayer {
         if (currentSeg > rep.nSegments) {
             if (this.mediaSource.readyState === "open") {
                 this.mediaSource.endOfStream();
-                console.log("End of stream reached.");
+                this.ui.log("End of stream reached.");
             }
             return;
         }
@@ -93,7 +117,7 @@ export class DashPlayer {
         }
 
         try {
-            console.log(`Fetching segment ${currentSeg} of ${rep.nSegments}`);
+            this.ui.log(`Fetching segment ${currentSeg} of ${rep.nSegments}`);
 
             await this.delay(2500); // Simulate network delay
             if (mySessionId !== this.seekSessionId) return;
@@ -111,6 +135,9 @@ export class DashPlayer {
 
             // eval ABR
             const timeToDownload = (endDownloadTime - startDownloadTime) / 1000;
+            const mbps = (buffer.byteLength * 8) / (timeToDownload * 1000000);
+            this.ui.updateSpeed(mbps);
+
             this.abr.addSample(buffer.byteLength, timeToDownload);
             const bestRepr = this.abr.selectRepresentation(this.adaptations);
             if (bestRepr && bestRepr.id !== this.representation.id) {
@@ -127,7 +154,7 @@ export class DashPlayer {
         } catch (error) {
             // Ignore aborted fetches due to seeking
             if (mySessionId !== this.seekSessionId) return;
-            console.error("Error fetching/appending segment:", error);
+            this.ui.log(`Error fetching/appending segment: ${error.message}`);
         }
     }
 
@@ -141,7 +168,7 @@ export class DashPlayer {
         this.seekSessionId++;
 
         const seekTime = this.videoElement.currentTime;
-        console.log(`Seeking to ${seekTime.toFixed(2)}s`);
+        this.ui.log(`Seeking to ${seekTime.toFixed(2)}s`);
 
         // Find the segment that contains the seekTime
         if (this.sourceBuffer.updating) {
@@ -227,7 +254,8 @@ export class DashPlayer {
 
         this.representation = newRepresentation
         this.currentSegment = segToFetch + 1;
-        console.log(`Switched to ${newRepresentation.id}`)
+        this.ui.log(`Switched to ${newRepresentation.id}`);
+        this.ui.updateQuality(newRepresentation.id);
         this.feedNextSegment();
     }
 }

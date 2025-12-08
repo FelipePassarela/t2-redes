@@ -9,7 +9,37 @@
 </head>
 
 <body>
-    <video id="videoPlayer" controls></video>
+    <div class="container">
+        <header>
+            <h1>Mini DASH Player</h1>
+        </header>
+
+        <main>
+            <div class="video-container">
+                <video id="videoPlayer" controls></video>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stat-card">
+                    <h3>Qualidade Atual</h3>
+                    <p id="quality-value">-</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Buffer Ahead</h3>
+                    <p id="buffer-value">0.00s</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Velocidade</h3>
+                    <p id="speed-value">- Mbps</p>
+                </div>
+            </div>
+
+            <div class="logs-panel">
+                <h3>Logs do Sistema</h3>
+                <div id="logs-content" class="logs-content"></div>
+            </div>
+        </main>
+    </div>
     <script type="module" src="js/app.js"></script>
 </body>
 
