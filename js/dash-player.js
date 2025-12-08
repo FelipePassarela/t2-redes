@@ -1,4 +1,7 @@
-class DashPlayer {
+import { log, formatTime } from './utils.js';
+import { parseManifest } from './manifest-parser.js';
+
+export class DashPlayer {
     constructor(videoElement) {
         this.video = videoElement;
         this.mediaSource = null;
@@ -23,7 +26,6 @@ class DashPlayer {
         this.minBufferTime = 10;
 
         this.videoSegments = [];
-        this.totalDuration = 0;
 
         this.seekBar = document.getElementById('seekBar');
         this.timeDisplay = document.getElementById('timeDisplay');
@@ -32,21 +34,12 @@ class DashPlayer {
         this.setupSeekControl();
     }
 
-    log(msg, type = 'info') {
-        const consoleEl = document.getElementById('logConsole');
-        if (!consoleEl) { console.log(`[${type}] ${msg}`); return; }
-        const entry = document.createElement('div');
-        entry.className = `log-entry log-${type}`;
-        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        consoleEl.prepend(entry);
-    }
-
     setupEventListeners() {
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
 
         this.mediaSource.addEventListener('sourceopen', () => {
-            this.log("MediaSource Aberto.");
+            log("MediaSource Aberto.");
         });
 
         setInterval(() => this.bufferLoop(), 1000);
@@ -90,7 +83,7 @@ class DashPlayer {
         const targetSeg = this.getSegmentForTime(time);
 
         if (targetSeg) {
-            this.log(`Seek ${time.toFixed(2)}s -> Segmento ${targetSeg.index} (Início: ${targetSeg.start.toFixed(2)}s)`);
+            log(`Seek ${time.toFixed(2)}s -> Segmento ${targetSeg.index} (Início: ${targetSeg.start.toFixed(2)}s)`);
             this.nextSegmentIndex = targetSeg.index;
         } else {
             // Fallback (caso o mapa falhe)
@@ -115,107 +108,26 @@ class DashPlayer {
             if (!response.ok) throw new Error("Erro HTTP manifesto");
             const text = await response.text();
 
-            if (this.parseManifest(text)) {
+            const result = parseManifest(text);
+            if (result.success) {
+                this.totalDuration = result.totalDuration;
+                this.videoSegments = result.videoSegments;
+                this.qualities = result.qualities;
+
+                if (this.mediaSource.readyState === 'open') {
+                    this.mediaSource.duration = this.totalDuration;
+                }
+
+                if (this.seekBar) this.seekBar.max = this.totalDuration;
+
                 await this.initializeSourceBuffer();
                 await this.downloadInitSegment();
 
                 try { await this.video.play(); } catch (e) { console.log("Autoplay bloqueado"); }
             }
         } catch (e) {
-            this.log(e.message, 'error');
+            log(e.message, 'error');
         }
-    }
-
-    parseManifest(xmlString) {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(xmlString, "text/xml");
-
-        const mpd = xml.querySelector("MPD");
-        const durationAttr = mpd ? mpd.getAttribute("mediaPresentationDuration") : null;
-        if (durationAttr) {
-            this.totalDuration = this.parseISODuration(durationAttr);
-            this.log(`Duração Total: ${this.totalDuration}s`);
-
-            if (this.mediaSource.readyState === 'open') {
-                this.mediaSource.duration = this.totalDuration;
-            }
-        }
-
-        const adaptationSets = xml.querySelectorAll("AdaptationSet");
-        let videoSet = null;
-        for (const as of adaptationSets) {
-            if (as.getAttribute("contentType") === "video" ||
-                (as.getAttribute("mimeType") && as.getAttribute("mimeType").includes("video"))) {
-                videoSet = as;
-                break;
-            }
-        }
-
-        if (!videoSet) {
-            this.log("Nenhum vídeo encontrado.", "error");
-            return false;
-        }
-
-        const rep = videoSet.querySelector("Representation");
-        const segmentTemplate = rep.querySelector("SegmentTemplate");
-
-        if (segmentTemplate) {
-            const timescale = parseFloat(segmentTemplate.getAttribute("timescale"));
-            const timeline = segmentTemplate.querySelector("SegmentTimeline");
-
-            this.videoSegments = [];
-            let currentTime = 0;
-            let segmentIndex = parseInt(segmentTemplate.getAttribute("startNumber") || 1);
-
-            const sTags = timeline.querySelectorAll("S");
-            sTags.forEach((s) => {
-                const d = parseFloat(s.getAttribute("d")); // Duração em unidades de tempo
-                const r = parseInt(s.getAttribute("r") || 0);
-
-                // Calcula duração em segundos
-                const durationSec = d / timescale;
-
-                // Adiciona o segmento atual
-                // Loop para tratar o atributo 'r' (repeat), comum em manifestos
-                for (let i = 0; i <= r; i++) {
-                    this.videoSegments.push({
-                        index: segmentIndex,
-                        start: currentTime,
-                        end: currentTime + durationSec,
-                        duration: durationSec
-                    });
-                    currentTime += durationSec;
-                    segmentIndex++;
-                }
-            });
-        }
-
-        const representations = videoSet.querySelectorAll("Representation");
-        this.qualities = Array.from(representations).map((rep) => ({
-            id: rep.getAttribute("id"),
-            bandwidth: parseInt(rep.getAttribute("bandwidth")),
-            height: rep.getAttribute("height"),
-            codecs: rep.getAttribute("codecs") || "avc1.64001f",
-            mimeType: "video/mp4"
-        })).sort((a, b) => a.bandwidth - b.bandwidth);
-
-        const seekBar = document.getElementById('seekBar');
-        if (seekBar) seekBar.max = this.totalDuration;
-
-        return true;
-    }
-
-    parseISODuration(pt) {
-        // Regex simplificado para pegar Horas, Minutos, Segundos
-        const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/;
-        const matches = pt.match(regex);
-        if (!matches) return 0;
-
-        const h = parseFloat(matches[1] || 0);
-        const m = parseFloat(matches[2] || 0);
-        const s = parseFloat(matches[3] || 0);
-
-        return (h * 3600) + (m * 60) + s;
     }
 
     async initializeSourceBuffer() {
@@ -256,7 +168,7 @@ class DashPlayer {
             const data = await this.fetchSegment(url);
             this.addToBuffer(data);
             this.initialized = true;
-        } catch (e) { this.log("Erro init", "error"); }
+        } catch (e) { log("Erro init", "error"); }
     }
 
     async fetchSegment(url) {
@@ -302,7 +214,7 @@ class DashPlayer {
         if (this.videoSegments.length > 0) {
             const lastSeg = this.videoSegments[this.videoSegments.length - 1];
             if (this.nextSegmentIndex > lastSeg.index) {
-                this.log("Fim da lista de segmentos.", "success");
+                log("Fim da lista de segmentos.", "success");
                 if (this.mediaSource.readyState === 'open') this.mediaSource.endOfStream();
                 this.isStopped = true;
                 return;
@@ -323,17 +235,17 @@ class DashPlayer {
                 throw new Error("EOS");
             }
 
-            this.log(`Baixando Chunk ${this.nextSegmentIndex}`);
+            log(`Baixando Chunk ${this.nextSegmentIndex}`);
             const data = await this.fetchSegment(url);
             this.addToBuffer(data);
             this.nextSegmentIndex++;
         } catch (e) {
             if (e.message === "EOS") {
-                this.log("Fim do vídeo");
+                log("Fim do vídeo");
                 if (this.mediaSource.readyState === 'open') this.mediaSource.endOfStream();
                 this.isStopped = true;
             } else {
-                this.log("Erro chunk: " + e.message, 'warn');
+                log("Erro chunk: " + e.message, 'warn');
             }
         }
     }
@@ -347,16 +259,9 @@ class DashPlayer {
         return 0;
     }
 
-    formatTime(seconds) {
-        if (isNaN(seconds)) return "00:00";
-        const m = Math.floor(seconds / 60);
-        const s = Math.floor(seconds % 60);
-        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-
     updateTimeDisplay(current, total) {
         if (this.timeDisplay) {
-            this.timeDisplay.innerText = `${this.formatTime(current)} / ${this.formatTime(total)}`;
+            this.timeDisplay.innerText = `${formatTime(current)} / ${formatTime(total)}`;
         }
     }
 
@@ -378,7 +283,3 @@ class DashPlayer {
         this.updateTimeDisplay(current, this.totalDuration);
     }
 }
-
-// Init
-const player = new DashPlayer(document.getElementById('videoPlayer'));
-document.getElementById('btnLoad').addEventListener('click', () => player.loadManifest());
