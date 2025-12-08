@@ -39,7 +39,6 @@ export class DashPlayer {
             console.log("Adaptations:", adaptations);
 
             this.mediaSource.duration = totalDuration;
-            // Hardcoded to first representation for simplicity
             this.representation = adaptations[0];
 
             const mimeType = `${this.representation.mimeType}; codecs="${this.representation.codecs}"`;
