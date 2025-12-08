@@ -17,6 +17,11 @@ export function parseManifest(manifest, baseURL) {
             for (let representation of representations) {
                 let id = representation.getAttribute("id");
 
+                const mimeType = representation.getAttribute("mimeType");
+                if (mimeType.startsWith("audio")) {
+                    continue; // skip audio for now
+                }
+
                 const segmentTemplate = representation.getElementsByTagName("SegmentTemplate")[0];
                 let init = segmentTemplate.getAttribute("initialization");
                 init = init.replace("$RepresentationID$", id);
@@ -43,7 +48,7 @@ export function parseManifest(manifest, baseURL) {
                     id: id,
                     bandwidth: representation.getAttribute("bandwidth"),
                     height: representation.getAttribute("height"),
-                    mimeType: representation.getAttribute("mimeType"),
+                    mimeType: mimeType,
                     codecs: representation.getAttribute("codecs"),
                     init: baseURL + init,
                     mediaTemplate: baseURL + media,
