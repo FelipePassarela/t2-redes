@@ -8,10 +8,9 @@ export class DashPlayer {
         this.sourceBuffer = null;
 
         // State variables
-        this.manifest = null;
         this.representation = null;
         this.currentSegment = 1;
-        this.isSeeking = false;
+        this.seekSessionId = 0;
 
         this.onSourceOpen = this.onSourceOpen.bind(this);
         this.init();
@@ -69,15 +68,14 @@ export class DashPlayer {
     }
 
     async feedNextSegment() {
-        if (this.isSeeking) return;
+        const mySessionId = this.seekSessionId;
+
         if (this.mediaSource.readyState !== "open") return;
 
         const rep = this.representation;
+        const currentSeg = this.currentSegment; // Local var to avoid race conditions
 
-        // Trick to capture currentSegment in async context
-        const currentSegment = this.currentSegment;
-
-        if (currentSegment > rep.nSegments) {
+        if (currentSeg > rep.nSegments) {
             if (this.mediaSource.readyState === "open") {
                 this.mediaSource.endOfStream();
                 console.log("End of stream reached.");
@@ -85,33 +83,38 @@ export class DashPlayer {
             return;
         }
 
-        if (this.isSegmentBuffered(currentSegment)) {
+        if (this.isSegmentBuffered(currentSeg)) {
             this.currentSegment++;
             this.feedNextSegment();
             return;
         }
 
         try {
-            console.log(`Fetching segment ${currentSegment} of ${rep.nSegments}`);
+            console.log(`Fetching segment ${currentSeg} of ${rep.nSegments}`);
+
             await this.delay(2500); // Simulate network delay
+            if (mySessionId !== this.seekSessionId) return;
 
             const mediaURL = rep.mediaTemplate
                 .replace("$RepresentationID$", rep.id)
-                .replace("$Number$", currentSegment)
+                .replace("$Number$", this.currentSegment)
                 .replace(".m4s", ""); // Server API doesn't expect file extension
 
             const resp = await fetch(mediaURL);
-            if (!resp.ok) {
-                throw new Error(`Failed to fetch segment: ${mediaURL}`);
-            }
-            const buffer = await resp.arrayBuffer();
-            await this.appendBufferSafe(buffer);
+            if (mySessionId !== this.seekSessionId) return;
+            if (!resp.ok) { throw new Error(`Failed to fetch segment: ${mediaURL}`); }
 
-            if (this.isSeeking) return;
+            const buffer = await resp.arrayBuffer();
+            if (mySessionId !== this.seekSessionId) return;
+            await this.appendBufferSafe(buffer);
+            if (mySessionId !== this.seekSessionId) return;
+
             this.currentSegment++;
             this.feedNextSegment();
 
         } catch (error) {
+            // Ignore aborted fetches due to seeking
+            if (mySessionId !== this.seekSessionId) return;
             console.error("Error fetching/appending segment:", error);
         }
     }
@@ -123,9 +126,10 @@ export class DashPlayer {
     async onSeeking() {
         if (!this.sourceBuffer || !this.representation) return;
 
+        this.seekSessionId++;
+
         const seekTime = this.videoElement.currentTime;
         console.log(`Seeking to ${seekTime.toFixed(2)}s`);
-        this.isSeeking = true;
 
         // Find the segment that contains the seekTime
         if (this.sourceBuffer.updating) {
@@ -141,13 +145,12 @@ export class DashPlayer {
 
         if (segIndex === -1) {
             console.warn("Seek time out of range of available segments.");
-            this.isSeeking = false;
+            this.seekSessionId--;
             return;
         }
 
         if (this.isSegmentBuffered(segIndex + 1)) {
             this.currentSegment = segIndex + 1;
-            this.isSeeking = false;
             this.feedNextSegment();
             return;
         }
@@ -157,7 +160,6 @@ export class DashPlayer {
             this.sourceBuffer.addEventListener("updateend", resolve, { once: true });
         });
         this.currentSegment = segIndex + 1; // Segments are 1-indexed
-        this.isSeeking = false;
         this.feedNextSegment();
     }
 
@@ -171,16 +173,18 @@ export class DashPlayer {
         const segStart = segmentInfo.start;
         const segEnd = segmentInfo.start + segmentInfo.duration;
         const buffered = this.sourceBuffer.buffered;
-        const tolerance = 0.1; // 100ms tolerance
+        const tolerance = 0.1; // to avoid floating point issues
 
         for (let i = 0; i < buffered.length; i++) {
-            const rangeStart = buffered.start(i);
-            const rangeEnd = buffered.end(i);
+            const buffStart = buffered.start(i);
+            const buffEnd = buffered.end(i);
 
-            if ((segStart + tolerance) >= rangeStart && (segEnd - tolerance) <= rangeEnd) {
+            console.log(`Buffered range: ${buffStart.toFixed(2)}s - ${buffEnd.toFixed(2)}s`);
+            if ((segStart + tolerance) >= buffStart && (segEnd - tolerance) <= buffEnd) {
                 return true;
             }
         }
+
         return false;
     }
 }
