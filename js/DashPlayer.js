@@ -24,6 +24,8 @@ export class DashPlayer {
     }
 
     async onSourceOpen() {
+        if (this.sourceBuffer) return; // Already initialized
+
         URL.revokeObjectURL(this.videoElement.src);
 
         try {
@@ -71,6 +73,7 @@ export class DashPlayer {
         if (this.mediaSource.readyState !== "open") return;
 
         const rep = this.representation;
+
         if (this.currentSegment > rep.nSegments) {
             if (this.mediaSource.readyState === "open") {
                 this.mediaSource.endOfStream();
@@ -81,7 +84,7 @@ export class DashPlayer {
 
         try {
             console.log(`Fetching segment ${this.currentSegment} of ${rep.nSegments}`);
-            await this.delay(500); // Simulate network delay
+            await this.delay(2000); // Simulate network delay
 
             const mediaURL = rep.mediaTemplate
                 .replace("$RepresentationID$", rep.id)
@@ -94,7 +97,7 @@ export class DashPlayer {
             }
             const buffer = await resp.arrayBuffer();
             await this.appendBufferSafe(buffer);
-            this.currentSegment++;
+            this.currentSegment += this.isSeeking ? 0 : 1;
             this.feedNextSegment();
 
         } catch (error) {
