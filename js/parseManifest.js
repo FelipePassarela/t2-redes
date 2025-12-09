@@ -17,6 +17,11 @@ export function parseManifest(manifest, baseURL) {
             for (let representation of representations) {
                 let id = representation.getAttribute("id");
 
+                const mimeType = representation.getAttribute("mimeType");
+                if (mimeType.startsWith("audio")) {
+                    continue; // skip audio for now
+                }
+
                 const segmentTemplate = representation.getElementsByTagName("SegmentTemplate")[0];
                 let init = segmentTemplate.getAttribute("initialization");
                 init = init.replace("$RepresentationID$", id);
@@ -28,7 +33,7 @@ export function parseManifest(manifest, baseURL) {
                 const timeScale = parseInt(segmentTemplate.getAttribute("timescale"));
                 let accumulatedTime = 0;
                 const segments = [];
-                
+
                 for (let segment of segmentTimeline.getElementsByTagName("S")) {
                     let duration = parseInt(segment.getAttribute("d"));
                     let durationSec = duration / timeScale;
@@ -42,7 +47,8 @@ export function parseManifest(manifest, baseURL) {
                 adaptations.push({
                     id: id,
                     bandwidth: representation.getAttribute("bandwidth"),
-                    mimeType: representation.getAttribute("mimeType"),
+                    height: representation.getAttribute("height"),
+                    mimeType: mimeType,
                     codecs: representation.getAttribute("codecs"),
                     init: baseURL + init,
                     mediaTemplate: baseURL + media,
