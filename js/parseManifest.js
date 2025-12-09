@@ -7,20 +7,24 @@ export function parseManifest(manifest, baseURL) {
     const totalDuration = parseDuration(durationStr);
 
     const periods = xmlDoc.getElementsByTagName("Period");
-    const adaptations = [];
+    const videoAdaptations = [];
+    const audioAdaptations = [];
 
     for (let period of periods) {
         const adaptationSets = period.getElementsByTagName("AdaptationSet");
 
         for (let adaptationSet of adaptationSets) {
+            const contentType = adaptationSet.getAttribute("contentType");
             const representations = adaptationSet.getElementsByTagName("Representation");
+
             for (let representation of representations) {
                 let id = representation.getAttribute("id");
 
                 const mimeType = representation.getAttribute("mimeType");
-                if (mimeType.startsWith("audio")) {
-                    continue; // skip audio for now
-                }
+                const isAudio = mimeType.startsWith("audio") || contentType === "audio";
+                const isVideo = mimeType.startsWith("video") || contentType === "video";
+
+                if (!isAudio && !isVideo) continue;
 
                 const segmentTemplate = representation.getElementsByTagName("SegmentTemplate")[0];
                 let init = segmentTemplate.getAttribute("initialization");
@@ -28,7 +32,6 @@ export function parseManifest(manifest, baseURL) {
 
                 const segmentTimeline = segmentTemplate.getElementsByTagName("SegmentTimeline")[0];
                 const media = segmentTemplate.getAttribute("media");
-                let nSegments = segmentTimeline.getElementsByTagName("S").length;
 
                 const timeScale = parseInt(segmentTemplate.getAttribute("timescale"));
                 let accumulatedTime = 0;
@@ -36,15 +39,27 @@ export function parseManifest(manifest, baseURL) {
 
                 for (let segment of segmentTimeline.getElementsByTagName("S")) {
                     let duration = parseInt(segment.getAttribute("d"));
+                    let repeat = parseInt(segment.getAttribute("r")) || 0;
                     let durationSec = duration / timeScale;
+
+                    // Add the first one
                     segments.push({
                         start: accumulatedTime,
                         duration: durationSec
                     });
                     accumulatedTime += durationSec;
+
+                    // Add repeats
+                    for (let i = 0; i < repeat; i++) {
+                        segments.push({
+                            start: accumulatedTime,
+                            duration: durationSec
+                        });
+                        accumulatedTime += durationSec;
+                    }
                 }
 
-                adaptations.push({
+                const adaptation = {
                     id: id,
                     bandwidth: representation.getAttribute("bandwidth"),
                     height: representation.getAttribute("height"),
@@ -52,14 +67,20 @@ export function parseManifest(manifest, baseURL) {
                     codecs: representation.getAttribute("codecs"),
                     init: baseURL + init,
                     mediaTemplate: baseURL + media,
-                    nSegments: nSegments,
+                    nSegments: segments.length,
                     segments: segments
-                });
+                };
+
+                if (isAudio) {
+                    audioAdaptations.push(adaptation);
+                } else {
+                    videoAdaptations.push(adaptation);
+                }
             }
         }
     }
 
-    return [totalDuration, adaptations];
+    return [totalDuration, videoAdaptations, audioAdaptations];
 }
 
 function parseDuration(str) {
