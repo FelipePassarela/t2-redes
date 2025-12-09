@@ -11,7 +11,9 @@ export class DashPlayer {
         this.abr = new ABRController();
         this.adaptations = null
 
-        const minimalInBuffer = 10; // seconds
+        this.delayMs = 2500; // ms
+        this.minimumBufferTime = 4 * this.delayMs / (1000); // seconds
+        console.log("Minimal in buffer:", this.minimumBufferTime);
 
         // State variables
         this.representation = null;
@@ -109,13 +111,13 @@ export class DashPlayer {
 
         // Check buffer level
         const bufferAhead = this.getBufferAhead();
-        if (bufferAhead >= this.minimalInBuffer) {
-            ui.log("Buffer full, waiting...");
+        if (bufferAhead >= this.minimumBufferTime) {
+            this.ui.log("Buffer full, waiting...");
             setTimeout(() => {
                 if (this.seekSessionId === mySessionId) {
                     this.feedNextSegment();
                 }
-            }, 1000);
+            }, this.delayMs);
             return;
         }
 
@@ -139,7 +141,7 @@ export class DashPlayer {
         try {
             this.ui.log(`Fetching segment ${currentSeg} of ${rep.nSegments}`);
 
-            await this.delay(2500); // Simulate network delay
+            await this.delay(this.delayMs); // Simulate network delay
             if (mySessionId !== this.seekSessionId) return;
 
             const mediaURL = rep.mediaTemplate
@@ -153,22 +155,28 @@ export class DashPlayer {
             const endDownloadTime = performance.now();
             if (mySessionId !== this.seekSessionId) return;
 
-            // eval ABR
-            const timeToDownload = (endDownloadTime - startDownloadTime) / 1000;
-            const mbps = (buffer.byteLength * 8) / (timeToDownload * 1000000);
-            this.ui.updateSpeed(mbps);
-
-            this.abr.addSample(buffer.byteLength, timeToDownload);
-            const bestRepr = this.abr.selectRepresentation(this.adaptations);
-            if (bestRepr && bestRepr.id !== this.representation.id) {
-                await this.switchRepresentation(bestRepr);
-                return;
-            }
-
             await this.appendBufferSafe(buffer);
             if (mySessionId !== this.seekSessionId) return;
-
             this.currentSegment++;
+
+            // eval ABR
+            const timeToDownload = (endDownloadTime - startDownloadTime) / 1000;
+            this.abr.addSample(buffer.byteLength, timeToDownload);
+            // const bestRepr = this.abr.selectRepresentation(this.adaptations);
+            // const mbps = (buffer.byteLength * 8) / (timeToDownload * 1000000);
+
+            // TEST PURPOSES
+            const bestRepr = this.randomRepresentation();
+            const randFactor = Math.random() * 0.5 + 0.75;
+            const mbps = randFactor * bestRepr.bandwidth / 1000000;
+            this.ui.updateSpeed(mbps);
+            // TEST PURPOSES
+
+            if (bestRepr && bestRepr.id !== this.representation.id) {
+                await this.switchRepresentation(bestRepr);
+                if (mySessionId !== this.seekSessionId) return;
+            }
+
             this.feedNextSegment();
 
         } catch (error) {
@@ -176,6 +184,11 @@ export class DashPlayer {
             if (mySessionId !== this.seekSessionId) return;
             this.ui.log(`Error fetching/appending segment: ${error.message}`);
         }
+    }
+
+    randomRepresentation() {
+        const index = Math.floor(Math.random() * this.adaptations.length);
+        return this.adaptations[index];
     }
 
     async delay(ms) {
@@ -247,35 +260,16 @@ export class DashPlayer {
     }
 
     async switchRepresentation(newRepresentation) {
-        const mySessionId = this.seekSessionId;
+        try {
+            const initResp = await fetch(newRepresentation.init)
+            const initBuffer = await initResp.arrayBuffer();
+            await this.appendBufferSafe(initBuffer);
 
-        this.sourceBuffer.remove(0, Infinity);
-        await new Promise(resolve => this.sourceBuffer
-            .addEventListener("updateend", resolve, { once: true })
-        );
-        if (mySessionId !== this.seekSessionId) return;
-
-        const initResp = await fetch(newRepresentation.init)
-        const initBuffer = await initResp.arrayBuffer();
-        if (mySessionId !== this.seekSessionId) return;
-        await this.appendBufferSafe(initBuffer);
-        if (mySessionId !== this.seekSessionId) return;
-
-        const segToFetch = newRepresentation.segments.findIndex(seg => {
-            const endTime = seg.start + seg.duration;
-            return this.videoElement.currentTime >= seg.start &&
-                this.videoElement.currentTime < endTime;
-        });
-
-        if (segToFetch === -1) {
-            console.warn("Seek time out of range of available segments.");
-            return;
+            this.representation = newRepresentation;
+            this.ui.updateQuality(newRepresentation.height + "p");
+            console.log("Switched to representation:", newRepresentation);
+        } catch (error) {
+            this.ui.log(`Error switching representation: ${error.message}`);
         }
-
-        this.representation = newRepresentation
-        this.currentSegment = segToFetch + 1;
-        this.ui.log(`Switched to ${newRepresentation.id}`);
-        this.ui.updateQuality(newRepresentation.height + "p");
-        this.feedNextSegment();
     }
 }
