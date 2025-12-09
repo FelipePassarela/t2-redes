@@ -7,17 +7,16 @@ export class DashPlayer {
         this.baseURL = baseURL;
         this.ui = ui;
         this.mediaSource = new MediaSource();
-
-        this.videoSourceBuffer = null;
-        this.audioSourceBuffer = null;
-
         this.abr = new ABRController();
 
+        this.videoSourceBuffer = null;
         this.videoAdaptations = null;
+        this.audioSourceBuffer = null;
         this.audioAdaptations = null;
 
-        this.delayMs = 2500; // ms
+        this.delayMs = 1750; // ms
         this.minimumBufferTime = 4 * this.delayMs / (1000); // seconds
+        this.defaultVolume = 0.1;
         console.log("Minimal in buffer:", this.minimumBufferTime);
 
         // State variables
@@ -36,7 +35,7 @@ export class DashPlayer {
 
     init() {
         this.videoElement.src = URL.createObjectURL(this.mediaSource);
-        this.videoElement.volume = 0.1;
+        this.videoElement.volume = this.defaultVolume;
         this.mediaSource.addEventListener("sourceopen", this.onSourceOpen);
         this.videoElement.addEventListener("seeking", () => this.onSeeking());
 
